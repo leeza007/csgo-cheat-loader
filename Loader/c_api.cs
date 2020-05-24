@@ -11,13 +11,16 @@ using System.Net.Security;
 
 namespace c_auth
 {
-    public class c_api
-    {
+    public class c_api {
+        #region defs
+
         private static string program_key { get; set; }
         private static string enc_key { get; set; }
         private static string iv_key { get; set; }
 
-        private static string iv_input { get; set; }
+        #endregion
+        private static string session_id { get; set; }
+
         public static void c_init(string c_version, string c_program_key, string c_encryption_key) {
             try {
                 using (var web = new WebClient()) {
@@ -33,39 +36,52 @@ namespace c_auth
                     var values = new NameValueCollection {
                         ["version"] = c_encryption.encrypt(c_version, enc_key),
                         ["session_iv"] = c_encryption.encrypt(iv_key, enc_key),
-                        ["api_version"] = c_encryption.encrypt("3.0b", enc_key),
+                        ["api_version"] = c_encryption.encrypt("3.2b", enc_key),
                         ["program_key"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(program_key))
                     };
 
-                    string result = Encoding.UTF8.GetString(web.UploadValues(api_link + "handler.php?type=init", values));
+                    string result =
+                        Encoding.UTF8.GetString(web.UploadValues(api_link + "handler.php?type=init", values));
 
                     ServicePointManager.ServerCertificateValidationCallback += (send, certificate, chain, sslPolicyErrors) => { return true; };
 
                     switch (result) {
                         case "program_doesnt_exist":
-                            MessageBox.Show("The program doesnt exist", "cAuth", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            MessageBox.Show("The program doesnt exist", "cAuth", MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
                             Environment.Exit(0);
                             break;
 
-                        case string xd when xd.Equals(c_encryption.encrypt("wrong_version", enc_key)):
-                            MessageBox.Show("Wrong program version", "cAuth", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        case string __ when __.Equals(c_encryption.encrypt("killswitch_is_enabled", enc_key)):
+                            MessageBox.Show("The killswitch of the program is enabled, contact the developer", "cAuth",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
                             Environment.Exit(0);
                             break;
 
-                        case string xd when xd.Equals(c_encryption.encrypt("old_api_version", enc_key)):
-                            MessageBox.Show("Please download the newest API files on the auth's website", "cAuth", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        case string __ when __.Equals(c_encryption.encrypt("wrong_version", enc_key)):
+                            MessageBox.Show("Wrong program version", "cAuth", MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
+                            Environment.Exit(0);
+                            break;
+
+                        case string __ when __.Equals(c_encryption.encrypt("old_api_version", enc_key)):
+                            MessageBox.Show("Please download the newest API files on the auth's website", "cAuth",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
                             Environment.Exit(0);
                             break;
 
                         default:
-                            string[] s = c_encryption.decrypt(result, enc_key).Split('|');
-                            iv_input = s[1];
+                            string[] init_split = c_encryption.decrypt(result, enc_key).Split('|');
+                            
+                            iv_key += init_split[1];
+                            session_id = init_split[2];
                             break;
                     }
                 }
             }
             catch (CryptographicException) {
-                MessageBox.Show("Invalid API/Encryption key or the session expired", "cAuth", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Invalid API/Encryption key or the session expired", "cAuth", MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
                 Environment.Exit(0);
             }
             catch (Exception ex) {
@@ -73,6 +89,7 @@ namespace c_auth
                 Environment.Exit(0);
             }
         }
+
         public static bool c_login(string c_username, string c_password, string c_hwid = "default") {
             if (c_hwid == "default") c_hwid = WindowsIdentity.GetCurrent().User.Value;
 
@@ -87,15 +104,22 @@ namespace c_auth
                         ["username"] = c_encryption.encrypt(c_username, enc_key, iv_key),
                         ["password"] = c_encryption.encrypt(c_password, enc_key, iv_key),
                         ["hwid"] = c_encryption.encrypt(c_hwid, enc_key, iv_key),
-                        ["iv_input"] = c_encryption.encrypt(iv_input, enc_key),
-                        ["program_key"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(program_key))
+                        ["sessid"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(session_id))
                     };
 
-                    string result = c_encryption.decrypt(Encoding.UTF8.GetString(web.UploadValues(api_link + "handler.php?type=login", values)), enc_key, iv_key);
+                    string result = c_encryption.decrypt(
+                        Encoding.UTF8.GetString(web.UploadValues(api_link + "handler.php?type=login", values)), enc_key,
+                        iv_key);
 
-                    ServicePointManager.ServerCertificateValidationCallback += (send, certificate, chain, sslPolicyErrors) => { return true; };
+                    ServicePointManager.ServerCertificateValidationCallback +=
+                        (send, certificate, chain, sslPolicyErrors) => { return true; };
 
                     switch (result) {
+                        case "killswitch_is_enabled":
+                            MessageBox.Show("The killswitch of the program is enabled, contact the developer", "cAuth",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            break;
+
                         case "invalid_username":
                             MessageBox.Show("Invalid username", "cAuth", MessageBoxButtons.OK, MessageBoxIcon.Error);
                             return false;
@@ -109,7 +133,8 @@ namespace c_auth
                             return false;
 
                         case "no_sub":
-                            MessageBox.Show("Your subscription is over", "cAuth", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            MessageBox.Show("Your subscription is over", "cAuth", MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
                             return false;
 
                         case "invalid_hwid":
@@ -117,14 +142,14 @@ namespace c_auth
                             return false;
 
                         case string _sw when _sw.Contains("logged_in"):
-                            string[] s = result.Split('|');
+                            string[] login_split = result.Split('|');
 
-                            c_userdata.username = s[1];
-                            c_userdata.email = s[2];
+                            c_userdata.username = login_split[1];
+                            c_userdata.email = login_split[2];
 
-                            c_userdata.expires = c_encryption.unix_to_date(Convert.ToDouble(s[3]));
+                            c_userdata.expires = c_encryption.unix_to_date(Convert.ToDouble(login_split[3]));
 
-                            c_userdata.rank = Convert.ToInt32(s[4]);
+                            c_userdata.rank = Convert.ToInt32(login_split[4]);
 
                             stored_pass = c_encryption.encrypt(c_password, enc_key, iv_key);
 
@@ -132,17 +157,22 @@ namespace c_auth
                             return true;
 
                         default:
-                            MessageBox.Show("Invalid API/Encryption key or the session expired", "cAuth", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            MessageBox.Show("Invalid API/Encryption key or the session expired", "cAuth",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
                             return false;
                     }
                 }
             }
             catch (Exception ex) {
-                MessageBox.Show(ex.Message);
+                MessageBox.Show(ex.ToString());
                 Environment.Exit(0);
                 return false;
             }
+
+            return false;
         }
+
+
         public static bool c_register(string c_username, string c_email, string c_password, string c_token, string c_hwid = "default") {
             if (c_hwid == "default") c_hwid = WindowsIdentity.GetCurrent().User.Value;
 
@@ -159,8 +189,7 @@ namespace c_auth
                         ["password"] = c_encryption.encrypt(c_password, enc_key, iv_key),
                         ["token"] = c_encryption.encrypt(c_token, enc_key, iv_key),
                         ["hwid"] = c_encryption.encrypt(c_hwid, enc_key, iv_key),
-                        ["iv_input"] = c_encryption.encrypt(iv_input, enc_key),
-                        ["program_key"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(program_key))
+                        ["sessid"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(session_id))
                     };
 
                     string result = c_encryption.decrypt(Encoding.UTF8.GetString(web.UploadValues(api_link + "handler.php?type=register", values)), enc_key, iv_key);
@@ -168,6 +197,11 @@ namespace c_auth
                     ServicePointManager.ServerCertificateValidationCallback += (send, certificate, chain, sslPolicyErrors) => { return true; };
 
                     switch (result) {
+                        case "killswitch_is_enabled":
+                            MessageBox.Show("The killswitch of the program is enabled, contact the developer", "cAuth",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            break;
+                        
                         case "user_already_exists":
                             MessageBox.Show("User already exists", "cAuth", MessageBoxButtons.OK, MessageBoxIcon.Error);
                             return false;
@@ -207,7 +241,9 @@ namespace c_auth
                 Environment.Exit(0);
                 return false;
             }
+            return false;
         }
+        
         public static bool c_activate(string c_username, string c_password, string c_token) {
             try {
                 using (var web = new WebClient()) {
@@ -220,8 +256,7 @@ namespace c_auth
                         ["username"] = c_encryption.encrypt(c_username, enc_key, iv_key),
                         ["password"] = c_encryption.encrypt(c_password, enc_key, iv_key),
                         ["token"] = c_encryption.encrypt(c_token, enc_key, iv_key),
-                        ["iv_input"] = c_encryption.encrypt(iv_input, enc_key),
-                        ["program_key"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(program_key))
+                        ["sessid"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(session_id))
                     };
 
                     string result = c_encryption.decrypt(Encoding.UTF8.GetString(web.UploadValues(api_link + "handler.php?type=activate", values)), enc_key, iv_key);
@@ -229,6 +264,11 @@ namespace c_auth
                     ServicePointManager.ServerCertificateValidationCallback += (send, certificate, chain, sslPolicyErrors) => { return true; };
 
                     switch (result) {
+                        case "killswitch_is_enabled":
+                            MessageBox.Show("The killswitch of the program is enabled, contact the developer", "cAuth",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            break;
+                        
                         case "invalid_username":
                             MessageBox.Show("Invalid username", "cAuth", MessageBoxButtons.OK, MessageBoxIcon.Error);
                             return false;
@@ -264,7 +304,10 @@ namespace c_auth
                 Environment.Exit(0);
                 return false;
             }
+
+            return false;
         }
+        
         public static bool c_all_in_one(string c_token, string c_hwid = "default") {
             if (c_hwid == "default") c_hwid = WindowsIdentity.GetCurrent().User.Value;
 
@@ -272,7 +315,6 @@ namespace c_auth
                 return true;
 
             else if (c_register(c_token, c_token + "@email.com", c_token, c_token, c_hwid)) {
-                MessageBox.Show("Success!!, Restarting...");
                 Environment.Exit(0);
                 return true;
             }
@@ -295,8 +337,7 @@ namespace c_auth
                         ["username"] = c_encryption.encrypt(c_userdata.username, enc_key, iv_key),
                         ["password"] = stored_pass,
                         ["hwid"] = c_encryption.encrypt(c_hwid, enc_key, iv_key),
-                        ["iv_input"] = c_encryption.encrypt(iv_input, enc_key),
-                        ["program_key"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(program_key))
+                        ["sessid"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(session_id))
                     };
 
                     string result = c_encryption.decrypt(Encoding.UTF8.GetString(web.UploadValues(api_link + "handler.php?type=var", values)), enc_key, iv_key);
@@ -325,10 +366,10 @@ namespace c_auth
                     var values = new NameValueCollection {
                         ["username"] = c_encryption.encrypt(c_userdata.username, enc_key, iv_key),
                         ["message"] = c_encryption.encrypt(c_message, enc_key, iv_key),
-                        ["iv_input"] = c_encryption.encrypt(iv_input, enc_key),
-                        ["program_key"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(program_key))
+                        ["sessid"] = c_encryption.byte_arr_to_str(Encoding.UTF8.GetBytes(session_id))
                     };
 
+                    //not doing response checks here
                     string result = Encoding.UTF8.GetString(web.UploadValues(api_link + "handler.php?type=log", values));
 
                     ServicePointManager.ServerCertificateValidationCallback += (send, certificate, chain, sslPolicyErrors) => { return true; };
@@ -367,7 +408,7 @@ namespace c_auth
                 bytes[i / 2] = Convert.ToByte(hex.Substring(i, 2), 16);
             return bytes;
         }
-
+        
         public static string EncryptString(string plainText, byte[] key, byte[] iv) {
             Aes encryptor = Aes.Create();
 
@@ -446,11 +487,10 @@ namespace c_auth
             if (null == certificate)
                 return false;
 
-            String pk = certificate.GetPublicKeyString();
+            string pk = certificate.GetPublicKeyString();
             if (pk.Equals("3082010A0282010100C7429D4B4591E50FE4B3ABDA72DB3F3EA578E12B9CD4E228E4EDFAC3F9681F354C913386A13E88181D1B14D91723FB50770C5DC94FCA59D4DEE4F6632041EFE76C3B6BCFF6B8F5B38AF92547D04BD08AF71087B094F5DFE8760C8CD09A3771836807588B02282BEC7C4CD73EE7C650C0A7C7F36F2FA56DA17E892B2760C4C75950EA5C90CD4EA301EC0CBC36B8372FE8515A7131CC6DF13A97D95B94C6A92AC4E5BFF217FCB20B3C01DB085229E919555D426D919E9A9F0D4C599FE7473FA7DBDE9B33279E2FC29F6CE09FA1269409E4A82175C8E0B65723DB6F856A53E3FD11363ADD63D1346790A3E4D1E454D1714ECED9815A0F85C5019C0D4DC3D58234C10203010001"))
                 return true;
 
-            // Bad dog
             return false;
         }
     }
